@@ -588,8 +588,8 @@ window.addEventListener('keydown', (e) => {
     }
 
     switch(key) {
-        case 'w': rotateMino('x', 1); break;
-        case 's': rotateMino('x', -1); break;
+        case 'w': rotateMino('x', -1); break;
+        case 's': rotateMino('x', 1); break;
         case 'a': rotateMino('y', 1); break;
         case 'd': rotateMino('y', -1); break;
         case 'q': rotateMino('z', 1); break;
