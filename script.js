@@ -31,7 +31,7 @@ let minoBag = [];
 let nextMinos = [];
 let currentMino = null;
 let ghostMino = null;
-let gridHelperGroup = null; 
+let gridHelperGroup = null;
 
 let keyCount = 0;
 let spawnTime = 0;
@@ -41,17 +41,21 @@ let heldMinoType = null;
 let canHold = true;
 
 // 조작감(DAS/ARR) 변수
-const DAS_DELAY = 160; 
-const ARR_INTERVAL = 40; 
+const DAS_DELAY = 100;
+const ARR_INTERVAL = 40;
 let initialDelays = { left: null, right: null, up: null, down: null };
 let moveTimers = { left: null, right: null, up: null, down: null };
 
 // 고정 지연(Lock Delay) 변수
-const LOCK_DELAY = 500; 
-const MAX_LOCK_RESETS = 15; 
+const LOCK_DELAY = 500;
+const MAX_LOCK_RESETS = 15;
 let lockTimer = null;
 let lockResetCount = 0;
-
+// ... 기존 변수들 아래에 추가 ...
+let isHardDropping = false;
+// 스페이스바 DAS/ARR 변수
+let spaceInitialDelay = null;
+let spaceRepeatTimer = null;
 // --- 2. 설정 UI 이벤트 ---
 ['x', 'z', 'y', 'speed'].forEach(id => {
     const input = document.getElementById(`set-${id}`);
@@ -61,7 +65,7 @@ let lockResetCount = 0;
 
 // --- 3. 고정 지연 (Lock Delay) 타이머 관리 ---
 function startLockTimer() {
-    if (lockTimer !== null) return; 
+    if (lockTimer !== null) return;
     lockTimer = setTimeout(() => {
         if (!isValidMove(0, -1, 0)) {
             lockMino();
@@ -112,32 +116,32 @@ function initSliceView() {
     if (!wrapper) return;
     wrapper.innerHTML = '';
     wrapper.style.gridTemplateColumns = '1fr 1fr';
-    
+
     const hLeft = Math.floor(ROWS / 2), hRight = Math.ceil(ROWS / 2);
-    const offsetLeft = hRight - hLeft; 
+    const offsetLeft = hRight - hLeft;
 
     for (let i = hRight - 1; i >= 0; i--) {
         const yLeft = i - offsetLeft, yRight = i + hLeft;
         if (yLeft >= 0) wrapper.appendChild(createLayerBlock(yLeft));
-        else wrapper.appendChild(document.createElement('div')); 
+        else wrapper.appendChild(document.createElement('div'));
         if (yRight < ROWS) wrapper.appendChild(createLayerBlock(yRight));
-        else wrapper.appendChild(document.createElement('div')); 
+        else wrapper.appendChild(document.createElement('div'));
     }
 }
 
 function createLayerBlock(y) {
     const layerDiv = document.createElement('div');
     layerDiv.className = 'layer-view';
-    layerDiv.innerHTML = `<div class="layer-label">L-${y + 1}</div>`; 
-    
+    layerDiv.innerHTML = `<div class="layer-label">L-${y + 1}</div>`;
+
     const grid = document.createElement('div');
     grid.className = 'grid-2d';
     grid.id = `layer-${y}`;
-    
-    const cellSize = Math.max(8, 20 - Math.max(COLS, DEPTH)); 
+
+    const cellSize = Math.max(8, 20 - Math.max(COLS, DEPTH));
     grid.style.gridTemplateColumns = `repeat(${COLS}, ${cellSize}px)`;
     grid.style.gridTemplateRows = `repeat(${DEPTH}, ${cellSize}px)`;
-    
+
     for (let i = 0; i < COLS * DEPTH; i++) {
         const cell = document.createElement('div');
         cell.className = 'cell';
@@ -155,9 +159,9 @@ function updateSliceView() {
         const cells = grid.getElementsByClassName('cell');
         for (let x = 0; x < COLS; x++) {
             for (let z = 0; z < DEPTH; z++) {
-                const index = z * COLS + x; 
+                const index = z * COLS + x;
                 cells[index].style.backgroundColor = '#111'; cells[index].style.boxShadow = 'none';
-                if (gameField[y][x][z] !== 0) cells[index].style.backgroundColor = gameField[y][x][z]; 
+                if (gameField[y][x][z] !== 0) cells[index].style.backgroundColor = gameField[y][x][z];
             }
         }
     }
@@ -170,7 +174,7 @@ function updateSliceView() {
                 const grid = document.getElementById(`layer-${worldY}`);
                 if (grid) {
                     const cells = grid.getElementsByClassName('cell');
-                    const index = (worldZ + zHalf) * COLS + (worldX + xHalf); 
+                    const index = (worldZ + zHalf) * COLS + (worldX + xHalf);
                     if (cells[index]) {
                         const minoColor = currentMino.children[0].material.color.getStyle();
                         cells[index].style.backgroundColor = minoColor;
@@ -217,8 +221,8 @@ const MINO_TYPES = {
 };
 
 const MINO_LAYOUTS = {
-    I: [[1,1,1,1], [0,0,0,0]], O: [[0,1,1,0], [0,1,1,0]], T: [[0,1,0,0], [1,1,1,0]],
-    S: [[0,1,1,0], [1,1,0,0]], Z: [[1,1,0,0], [0,1,1,0]], J: [[1,0,0,0], [1,1,1,0]], L: [[0,0,1,0], [1,1,1,0]]
+    I: [[1, 1, 1, 1], [0, 0, 0, 0]], O: [[0, 1, 1, 0], [0, 1, 1, 0]], T: [[0, 1, 0, 0], [1, 1, 1, 0]],
+    S: [[0, 1, 1, 0], [1, 1, 0, 0]], Z: [[1, 1, 0, 0], [0, 1, 1, 0]], J: [[1, 0, 0, 0], [1, 1, 1, 0]], L: [[0, 0, 1, 0], [1, 1, 1, 0]]
 };
 
 function refillBag() {
@@ -279,14 +283,14 @@ function updateHoldUI() {
     if (!holdList) return;
     if (heldMinoType) draw2DGrid(holdList, heldMinoType);
     else holdList.innerHTML = '';
-    
+
     holdList.style.opacity = canHold ? "1" : "0.3";
 }
 
 function createMinoGroup(typeKey) {
     const type = MINO_TYPES[typeKey];
     const group = new THREE.Group();
-    const geometry = new THREE.BoxGeometry(0.95, 0.95, 0.95); 
+    const geometry = new THREE.BoxGeometry(0.95, 0.95, 0.95);
     const material = new THREE.MeshStandardMaterial({ color: type.color, roughness: 0.2, metalness: 0.1 });
 
     type.blocks.forEach(offset => {
@@ -306,9 +310,9 @@ function spawnMino() {
     const group = createMinoGroup(typeKey);
     group.position.set(0, ROWS - 1, 0);
     scene.add(group);
-    
+
     keyCount = 0;
-    spawnTime = performance.now(); 
+    spawnTime = performance.now();
     return group;
 }
 
@@ -333,7 +337,7 @@ function holdMino() {
         scene.add(currentMino);
     }
 
-    canHold = false; 
+    canHold = false;
     updateHoldUI();
     updateSliceView();
     updateGhostMino();
@@ -360,15 +364,15 @@ function rotateMino(axis, direction) {
 
     currentMino.children.forEach(mesh => {
         const x = Math.round(mesh.position.x), y = Math.round(mesh.position.y), z = Math.round(mesh.position.z);
-        if (axis === 'x') { mesh.position.y = direction > 0 ? -z : z; mesh.position.z = direction > 0 ? y : -y; } 
-        else if (axis === 'y') { mesh.position.x = direction > 0 ? z : -z; mesh.position.z = direction > 0 ? -x : x; } 
+        if (axis === 'x') { mesh.position.y = direction > 0 ? -z : z; mesh.position.z = direction > 0 ? y : -y; }
+        else if (axis === 'y') { mesh.position.x = direction > 0 ? z : -z; mesh.position.z = direction > 0 ? -x : x; }
         else if (axis === 'z') { mesh.position.x = direction > 0 ? -y : y; mesh.position.y = direction > 0 ? x : -x; }
     });
 
     const kickOffsets = [
-        {dx: 0, dy: 0, dz: 0}, {dx: 1, dy: 0, dz: 0}, {dx: -1, dy: 0, dz: 0}, 
-        {dx: 0, dy: 0, dz: 1}, {dx: 0, dy: 0, dz: -1}, {dx: 0, dy: 1, dz: 0}, 
-        {dx: 1, dy: 1, dz: 0}, {dx: -1, dy: 1, dz: 0}, {dx: 0, dy: 1, dz: 1}, {dx: 0, dy: 1, dz: -1}
+        { dx: 0, dy: 0, dz: 0 }, { dx: 1, dy: 0, dz: 0 }, { dx: -1, dy: 0, dz: 0 },
+        { dx: 0, dy: 0, dz: 1 }, { dx: 0, dy: 0, dz: -1 }, { dx: 0, dy: 1, dz: 0 },
+        { dx: 1, dy: 1, dz: 0 }, { dx: -1, dy: 1, dz: 0 }, { dx: 0, dy: 1, dz: 1 }, { dx: 0, dy: 1, dz: -1 }
     ];
 
     let rotated = false;
@@ -381,20 +385,20 @@ function rotateMino(axis, direction) {
 
     if (!rotated) {
         currentMino.children.forEach((mesh, index) => mesh.position.copy(originalPositions[index]));
-    } else { 
-        updateSliceView(); 
-        updateGhostMino(); 
-        resetLockTimer(); 
+    } else {
+        updateSliceView();
+        updateGhostMino();
+        resetLockTimer();
     }
 }
 
 function handleMove(dir) {
     let dx = 0, dz = 0;
     if (dir === 'left') dx = -1; else if (dir === 'right') dx = 1; else if (dir === 'up') dz = -1; else if (dir === 'down') dz = 1;
-    
+
     if (isValidMove(dx, 0, dz)) {
         currentMino.position.x += dx; currentMino.position.z += dz;
-        updateSliceView(); 
+        updateSliceView();
         updateGhostMino();
         resetLockTimer();
     }
@@ -403,22 +407,30 @@ function handleMove(dir) {
 function moveMinoDown() {
     if (!currentMino) return;
     if (isValidMove(0, -1, 0)) {
-        currentMino.position.y -= 1; 
+        currentMino.position.y -= 1;
         cancelLockTimer();
-        updateSliceView(); 
-        updateGhostMino(); 
-    } else { 
-        startLockTimer(); 
+        updateSliceView();
+        updateGhostMino();
+    } else {
+        startLockTimer();
     }
 }
 
 function hardDrop() {
-    if (!currentMino) return;
-    let dropDist = 0;
-    while (isValidMove(0, -(dropDist + 1), 0)) dropDist++;
-    currentMino.position.y -= dropDist;
-    updateSliceView(); 
-    lockMino();
+    if (!currentMino || !isPlaying) return;
+
+    // 아래로 한 칸 내려갈 수 있다면
+    if (isValidMove(0, -1, 0)) {
+        currentMino.position.y -= 1; // 직접 한 칸 내림
+
+        updateSliceView();
+        updateGhostMino();
+        resetLockTimer(); // 조작했으므로 고정 지연 시간 초기화
+        keyCount++;
+    } else {
+        // 이미 바닥에 닿아 있는 상태에서 누르면 즉시 고정
+        lockMino();
+    }
 }
 
 // --- 7. 블록 잠금 및 게임 로직 ---
@@ -444,7 +456,7 @@ function clearLines() {
                 }
             }
             for (let x = 0; x < COLS; x++) { for (let z = 0; z < DEPTH; z++) { gameField[ROWS - 1][x][z] = 0; meshField[ROWS - 1][x][z] = null; } }
-            y--; 
+            y--;
         }
     }
     return linesCleared;
@@ -469,17 +481,17 @@ function lockMino() {
     scene.remove(currentMino); currentMino = null;
 
     const elapsedSeconds = (performance.now() - spawnTime) / 1000;
-    const linesCleared = clearLines(); 
+    const linesCleared = clearLines();
 
     let baseScore = linesCleared * 100 * linesCleared;
-    if (linesCleared === 0) baseScore = 10; 
+    if (linesCleared === 0) baseScore = 10;
     score += Math.round(baseScore * (1 + (50 / (keyCount + 1)) + (20 / (elapsedSeconds + 0.5))));
     document.getElementById('score').innerText = score;
 
     const level = Math.floor(score / 10000);
     dropInterval = Math.max(100, initialDropInterval - (level * 500));
 
-    canHold = true; 
+    canHold = true;
     updateHoldUI();
 
     currentMino = spawnMino();
@@ -504,29 +516,29 @@ function clearBoard() {
 function startGame() {
     document.getElementById('main-menu').style.display = 'none';
     document.getElementById('game-over-screen').style.display = 'none';
-    
+
     clearBoard();
-    
+
     COLS = parseInt(document.getElementById('set-x').value);
     DEPTH = parseInt(document.getElementById('set-z').value);
     ROWS = parseInt(document.getElementById('set-y').value);
     dropInterval = parseInt(document.getElementById('set-speed').value);
     initialDropInterval = dropInterval;
-    
+
     gameField = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => Array(DEPTH).fill(0)));
     meshField = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => Array(DEPTH).fill(null)));
-    
+
     camera.position.set(COLS * 1.5, ROWS * 1.2, DEPTH * 2.2);
     camera.lookAt(0, ROWS / 2 - 1, 0);
 
     createGridGuide(); initSliceView(); initNextMinos();
-    
+
     score = 0; keyCount = 0;
     document.getElementById('score').innerText = score;
     minoBag = []; heldMinoType = null; canHold = true; updateHoldUI();
-    
+
     currentMino = spawnMino();
-    updateSliceView(); updateGhostMino(); 
+    updateSliceView(); updateGhostMino();
     isPlaying = true; lastDropTime = performance.now();
 }
 
@@ -542,52 +554,61 @@ function triggerGameOver() {
 document.getElementById('start-btn').addEventListener('click', startGame);
 document.getElementById('restart-btn').addEventListener('click', startGame);
 
-document.getElementById('settings-btn').addEventListener('click', () => { 
-    document.getElementById('main-menu').style.display = 'none'; 
-    document.getElementById('settings-menu').style.display = 'flex'; 
+document.getElementById('settings-btn').addEventListener('click', () => {
+    document.getElementById('main-menu').style.display = 'none';
+    document.getElementById('settings-menu').style.display = 'flex';
 });
-document.getElementById('back-btn').addEventListener('click', () => { 
-    document.getElementById('settings-menu').style.display = 'none'; 
-    document.getElementById('main-menu').style.display = 'flex'; 
-});
-
-document.getElementById('controls-btn').addEventListener('click', () => { 
-    document.getElementById('main-menu').style.display = 'none'; 
-    document.getElementById('controls-menu').style.display = 'flex'; 
-});
-document.getElementById('back-controls-btn').addEventListener('click', () => { 
-    document.getElementById('controls-menu').style.display = 'none'; 
-    document.getElementById('main-menu').style.display = 'flex'; 
+document.getElementById('back-btn').addEventListener('click', () => {
+    document.getElementById('settings-menu').style.display = 'none';
+    document.getElementById('main-menu').style.display = 'flex';
 });
 
-document.getElementById('menu-btn').addEventListener('click', () => { 
-    document.getElementById('game-over-screen').style.display = 'none'; 
-    document.getElementById('main-menu').style.display = 'flex'; 
+document.getElementById('controls-btn').addEventListener('click', () => {
+    document.getElementById('main-menu').style.display = 'none';
+    document.getElementById('controls-menu').style.display = 'flex';
+});
+document.getElementById('back-controls-btn').addEventListener('click', () => {
+    document.getElementById('controls-menu').style.display = 'none';
+    document.getElementById('main-menu').style.display = 'flex';
+});
+
+document.getElementById('menu-btn').addEventListener('click', () => {
+    document.getElementById('game-over-screen').style.display = 'none';
+    document.getElementById('main-menu').style.display = 'flex';
 });
 
 // 키보드 조작 이벤트
 window.addEventListener('keydown', (e) => {
-    if (!isPlaying || !currentMino) return; 
+    if (!isPlaying || !currentMino) return;
     const key = e.key.toLowerCase();
-    
+
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) e.preventDefault();
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', 'q', 'e', ' '].includes(key)) keyCount++;
 
     if (key === 'c') { holdMino(); return; }
-    if (key === ' ') { hardDrop(); return; }
+    if (key === ' ' && !spaceInitialDelay) {
+        hardDrop(); // 처음 누르면 즉시 한 칸 하강
+
+        spaceInitialDelay = setTimeout(() => {
+            spaceRepeatTimer = setInterval(() => {
+                hardDrop(); // 꾹 누르고 있으면 ARR 속도(40ms)로 계속 하강
+            }, ARR_INTERVAL);
+        }, DAS_DELAY);
+        return;
+    }
 
     const dirMap = { 'arrowleft': 'left', 'arrowright': 'right', 'arrowup': 'up', 'arrowdown': 'down' };
     const dir = dirMap[key];
 
     if (dir && !initialDelays[dir]) {
-        handleMove(dir); 
+        handleMove(dir);
         initialDelays[dir] = setTimeout(() => {
             moveTimers[dir] = setInterval(() => { handleMove(dir); keyCount++; }, ARR_INTERVAL);
         }, DAS_DELAY);
         return;
     }
 
-    switch(key) {
+    switch (key) {
         case 'w': rotateMino('x', -1); break;
         case 's': rotateMino('x', 1); break;
         case 'a': rotateMino('y', 1); break;
@@ -599,6 +620,13 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
+    // 스페이스바 타이머 해제
+    if (key === ' ') {
+        clearTimeout(spaceInitialDelay);
+        clearInterval(spaceRepeatTimer);
+        spaceInitialDelay = null;
+        spaceRepeatTimer = null;
+    }
     const dirMap = { 'arrowleft': 'left', 'arrowright': 'right', 'arrowup': 'up', 'arrowdown': 'down' };
     const dir = dirMap[key];
 
@@ -619,10 +647,19 @@ window.addEventListener('resize', () => {
 let lastDropTime = 0;
 function animate(time) {
     requestAnimationFrame(animate);
-    if (isPlaying && time - lastDropTime > dropInterval) {
-        moveMinoDown(); 
-        lastDropTime = time;
+
+    // 마우스 컨트롤 업데이트
+    if (controls) controls.update();
+
+    // 게임 진행 중일 때만 자동 하강 로직 작동
+    if (isPlaying && currentMino) {
+        // 스페이스바와 상관없이 설정된 dropInterval 속도로만 자동 하강
+        if (time - lastDropTime > dropInterval) {
+            moveMinoDown();
+            lastDropTime = time;
+        }
     }
+
     renderer.render(scene, camera);
 }
 animate(0);
